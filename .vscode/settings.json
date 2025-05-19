@@ -1,0 +1,9 @@
+{
+    "python.analysis.diagnosticsSource": "Pylance",
+    "python.analysis.enablePytestSupport": false,
+    "python.analysis.typeEvaluation.strictParameterNoneValue": true,
+    "python.analysis.typeEvaluation.enableTypeIgnoreComments": false,
+    "python.analysis.persistAllIndices": true,
+    "css.lint.hexColorLength": "warning",
+    "C_Cpp.inlayHints.parameterNames.hideLeadingUnderscores": true
+}
