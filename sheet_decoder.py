@@ -4,6 +4,9 @@ from pdf2image import convert_from_path
 from PIL import Image
 import os
 from create_answers import create_answers
+import qrcode
+# from pyzbar.pyzbar import decode
+
 
 
 def pdf_to_image(pdf_path, dpi=300):
@@ -94,11 +97,6 @@ def detect_border_shapes(image_path):
     else:
         print(f"Only {len(corner_centers)} corner(s) detected. Cannot perform crop.")
     
-    
-# def crop_sheet(image):
-    
-    
-
 # Calculate angle between consecutive segments
 def angle(pt1, pt2, pt3):
     v1 = pt1 - pt2
@@ -107,63 +105,7 @@ def angle(pt1, pt2, pt3):
         np.clip(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), -1.0, 1.0)
     )
     return np.degrees(angle)
-    
-    
-    
-
-def detect_blobs_by_half(image):
-    # Split the sheet into two - vertically
-    height, width = image.shape[:2]
-    left_half = image[:, :width // 2]
-    right_half = image[:, width // 2:]
-    
-    circles_list = []
-    
-     # Detect circles in both columns
-    for idx, half in enumerate([left_half, right_half]):
-    
-        gray = cv2.cvtColor(half, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        thresh = cv2.adaptiveThreshold(blurred, 255,
-                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                    cv2.THRESH_BINARY_INV, 11, 2)
-    
-    
-
-    
-   
-        circles = cv2.HoughCircles(blurred, 
-                            cv2.HOUGH_GRADIENT,
-                            dp=1,
-                            minDist=30,
-                            param1=100,
-                            param2=20,
-                            minRadius=35,
-                            maxRadius=40)
-
-        if len(circles[0]) == 80:  # 40 x 4 = 160 / 2 = 80
-            circles = np.round(circles[0, :]).astype("int")
-            for i, (x, y, r) in enumerate(circles):
-                
-                roi = thresh[y - r:y + r, x - r:x + r] # Extract ROI (Region of Interest)
-                mean_intensity = cv2.mean(roi)[0]
-
-                # Draw outer circle (outline)
-                cv2.circle(half, (x, y), r, (0, 255, 0), 2)
-
-                if mean_intensity > 70:  
-                    cv2.circle(half, (x, y), r - 2, (0, 0, 255), -1)
-                    
-            circles_list.append(circles)
-        else:
-            print(f'{len(circles[0])} circles found.')
-            
-    full_image = np.hstack((left_half, right_half))
-    cv2.imwrite('marked.png', full_image)
-            
-    return circles_list
-
-
+      
 
 def detect_blobs(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -190,11 +132,10 @@ def detect_blobs(image):
         # Draw outer circle (outline)
         cv2.circle(image, (x, y), r, (0, 255, 0), 4)
 
-        print(mean_intensity)
-        if mean_intensity > 90:  
+        if mean_intensity > 70:  
             cv2.circle(image, (x, y), r - 2, (0, 0, 255), -1)
 
-    if len(circles[0]) == 160:  # 40 x 4 = 160 
+    if len(circles[0]) <= 160:  # 40 x 4 = 160 
         # circles = np.round(circles[0, :]).astype("int")
         # for i, (x, y, r) in enumerate(circles):
             
@@ -233,7 +174,6 @@ def group_by_rows(circles, thresh, y_thresh=15):
         row.sort(key=lambda x: x[0])  # sort by X
         
     # Split the row in 4, 4. Coz it contains options of two question. eg: 1 and 20, 2 and 21
-    rows_complete = []
     question_map = {}
     options = ['A', 'B', 'C', 'D']
     for qn, row in enumerate(rows, start=1):
@@ -245,6 +185,9 @@ def group_by_rows(circles, thresh, y_thresh=15):
             roi = thresh[y - r:y + r, x - r:x + r] # Extract ROI (Region of Interest)
             mean_intensity = cv2.mean(roi)[0]
             if mean_intensity < 70: # If colored
+                if qn in question_map:  # If multiple choices, do not select
+                    del question_map[qn]  # Delete the saved option
+                    break  # Break the loop to do not iterate for another choice
                 question_map[qn] = [options[j], x, y, r, mean_intensity]  
         
         # Last 4 bubbles
@@ -254,6 +197,8 @@ def group_by_rows(circles, thresh, y_thresh=15):
             if mean_intensity < 70: # If colored
                 question_map[qn + 20] = [options[j], x, y, r, mean_intensity]
                 
+    
+    # print('qmap', question_map)
     answers = {}
     for qn, values in question_map.items():
         answers[qn] = values[0]
@@ -280,21 +225,28 @@ def group_by_rows(circles, thresh, y_thresh=15):
     return answers
         
         
+def get_details(image_path):
+    image = cv2.imread(image_path)
+    
+    qr_detector = cv2.QRCodeDetector()
+    data, _, _ = qr_detector.detectAndDecode(image)
+    
+    return data
         
         
-def evaluate(answers):
-    print(answers)
-    print('-----------------------')
+        
+def evaluate(answers, data):
     correct_answers = create_answers(40)
-    print(correct_answers)
+    print(answers)
     
     total_mark = 0
     for qn, answer in answers.items():
         crr = correct_answers.get(qn)
         if answer == crr:
             total_mark += 1
-            
-    print(total_mark)      
+    
+    print(f'Details : {data}')
+    print('Total mark :', total_mark)      
         
     
             
@@ -307,13 +259,14 @@ def evaluate(answers):
 
 
 if __name__ == '__main__':
-    file_path = 'answered_sheets/new_answered.pdf'
+    file_path = 'results/converted_page.png'
     if file_path.split('.')[-1] == 'pdf':
         image_path = pdf_to_image(file_path)
     else:
         image_path = file_path
+    data = get_details(file_path)
     croped_image = detect_border_shapes(image_path)
     circles, thresh = detect_blobs(croped_image)
     answers = group_by_rows(circles, thresh)
 
-    evaluate(answers)
+    evaluate(answers, data)
