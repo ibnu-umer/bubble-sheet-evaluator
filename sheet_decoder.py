@@ -116,6 +116,10 @@ def detect_blobs(image):
     left_H = image[:, :img_mid_x]
     right_H = image[:, img_mid_x:]
     
+    cv2.imwrite('lefg.png', left_H)
+    cv2.imwrite('raght.png', right_H)
+    
+    
     total_circles = []
     threshs = []
     for H in [left_H, right_H]:
@@ -138,16 +142,16 @@ def detect_blobs(image):
         total_circles.append(circles)
         threshs.append(thresh)
         
-        for i, (x, y, r) in enumerate(circles):
+        # for i, (x, y, r) in enumerate(circles):
             
-            roi = thresh[y - r:y + r, x - r:x + r] # Extract ROI (Region of Interest)
-            mean_intensity = cv2.mean(roi)[0]
+        #     roi = thresh[y - r:y + r, x - r:x + r] # Extract ROI (Region of Interest)
+        #     mean_intensity = cv2.mean(roi)[0]
 
-            # Draw outer circle (outline)
-            cv2.circle(H, (x, y), r, (0, 255, 0), 4)
+        #     # Draw outer circle (outline)
+        #     cv2.circle(H, (x, y), r, (0, 255, 0), 4)
 
-            if mean_intensity > MEAN_INTENSITY:  
-                cv2.circle(H, (x, y), r, (0, 0, 255), 4)
+        #     if mean_intensity > MEAN_INTENSITY:  
+        #         cv2.circle(H, (x, y), r, (0, 0, 255), 4)
 
     full_image = cv2.hconcat([left_H, right_H])
     cv2.imwrite('results/blobs_det.png', full_image)
@@ -180,27 +184,38 @@ def group_by_rows(circles, threshs, y_thresh=15):
     qn ,question_map = 1, {}
     options = ['A', 'B', 'C', 'D']
     image = cv2.imread('results/blobs_det.png')
-
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
     width = 0
-    for rows, thresh in zip(complete_rows, threshs):
+    for rows in complete_rows:
         for row in rows:
             for j, (x, y, r) in enumerate(row):
-                roi = thresh[y - r:y + r, x - r:x + r] # Extract ROI (Region of Interest)
-                mean_intensity = cv2.mean(roi)[0]
-                # print(qn, mean_intensity)
+                mask = np.zeros(gray.shape, dtype=np.uint8)
+                cv2.circle(mask, (x + width, y), r, 255, -1)
+                mean_val = cv2.mean(gray, mask=mask)[0]
+                
+                color = (0, 0, 255)
+                if mean_val < 30:
+                    color = (0, 255, 0)
+                    question_map[qn] = options[j] # Also save the option
+                    
+                # Draw circle on the detected circle
+                cv2.circle(image, (x + width, y), r, color, 4)
+                
                 cv2.putText(
                             image,
-                            f'{str(qn)} {options[j]} {round(mean_intensity, 2)}', 
+                            f'{round(mean_val, 2)}', # str(qn)} {options[j]} {round(mean_intensity, 2)} {
                             ((x-100) + width, y - 55),
                             cv2.FONT_HERSHEY_SIMPLEX, 1,
                             (255, 0, 0), 3, cv2.LINE_AA
                             )
-            qn += 1
+            qn += 1  # Increase question number
+                
         width = image.shape[1] // 2
         
     cv2.imwrite('results/marked.png', image)
     
-    return {}
+    return question_map
         
         
 def get_details(image_path):
@@ -232,15 +247,7 @@ def evaluate(answers, data):
 
 
 
-
-
-
-
-if __name__ == '__main__':
-    # file_path = 'answered_sheets/answer_sheets.pdf'
-    # pdf_to_image(file_path)
-    
-    
+def a_folder():
     for img in os.listdir('converted_sheets'):
         print(img)
         img_path = f'converted_sheets/{img}'
@@ -251,3 +258,19 @@ if __name__ == '__main__':
 
         evaluate(answers, data)
         break
+
+
+
+
+
+if __name__ == '__main__':
+    # file_path = 'answered_sheets/ans.pdf'
+    # pdf_to_image(file_path)
+    
+    img_path = f'converted_sheets/0.png'
+    data = get_details(img_path)
+    croped_image = detect_border_shapes(img_path)
+    circles, thresh = detect_blobs(croped_image)
+    answers = group_by_rows(circles, thresh)
+
+    evaluate(answers, data)
