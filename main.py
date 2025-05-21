@@ -2,16 +2,16 @@ import os
 import cv2
 import numpy as np
 from pdf2image import convert_from_path
-from create_answers import create_answers
 import csv
 import ast
 from concurrent.futures import ProcessPoolExecutor
-
+import json
+import traceback
 
 
 
 # Constants
-MEAN_INTENSITY_THRESHOLD = 30
+MEAN_INTENSITY_THRESHOLD = 40
 PDF_DPI = 300
 POPPLER_PATH = 'poppler/poppler-24.08.0/Library/bin'
 CONVERTED_IMG_PATH = 'answered_sheets/converted_sheets/'
@@ -20,6 +20,10 @@ RESULT_SHEET_PATH = 'results.csv'
 OPTIONS = ['A', 'B', 'C', 'D']
 
 
+def load_answers():
+    with open('answers.json', 'r') as file:
+        answers = json.load(file)
+    return answers
 
 
 def ensure_dir(path):
@@ -36,6 +40,7 @@ def pdf_to_images(pdf_path, dpi=PDF_DPI, save_path=CONVERTED_IMG_PATH):
         students_data.append(student_data)
         img.save(f'{save_path}{student_data.get('roll')}.png', 'PNG')
     return students_data
+
 
 def detect_corner_markers(image_path):
     def angle(pt1, pt2, pt3):
@@ -153,15 +158,15 @@ def extract_qr_data(image):
     if data:
         return ast.literal_eval(data)
     print("Error : Qr-Code didn't detected")
-    return None
+    return {'name': 'Unknown', 'roll': 'Unknown'}
 
 
 def evaluate_sheet(responses, student_data):
-    correct_answers = create_answers(40)  # Simulating answers
-    score = sum(1 for q, a in responses.items() if correct_answers.get(q) == a)
+    answers = load_answers()  # Loading in each coz multithreading didn't share variables
+    score = sum(1 for q, a in responses.items() if answers.get(str(q)) == a)
     student_data['score'] = score
     
-    print(f"Student: {student_data.get('name')}\nScore: {score}/40\n")
+    print(f"Student: {student_data.get('name')} {student_data.get('roll')}\nScore: {score}/40\n")
     return student_data
 
 
@@ -171,8 +176,8 @@ def process_one_sheet(img_filename, student_data):
     if cropped is not None:
         img_name = img_filename.split('.')[0]
         bubbles = detect_bubbles(cropped, img_name=img_name)
-        answers = group_and_evaluate(bubbles, img_name=img_name)
-        student_info = evaluate_sheet(answers, student_data)   
+        results = group_and_evaluate(bubbles, img_name=img_name)
+        student_info = evaluate_sheet(results, student_data)   
     else:
         return f"Failed to process: {img_filename}"
     
@@ -180,36 +185,41 @@ def process_one_sheet(img_filename, student_data):
     return student_info
     
 
-
-
-
 def save_results_to_csv(results):
     if not results:
         print("No results to save.")
         return
+    
+    sorted_results = sorted(results, key=lambda x:x['score'], reverse=True)
 
     keys = ['roll', 'name', 'score']
     with open(RESULT_SHEET_PATH, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        writer.writerows(results)
-    print(f"Results saved to {filename}")
+        writer.writerows(sorted_results)
+    print(f"Results saved to {RESULT_SHEET_PATH}")
 
 
 
 def main():
     try:
-        students_data = pdf_to_images('answered_sheets/asd.pdf')
+        students_data = pdf_to_images('answered_sheets/answer_sheets_2.pdf')
         ensure_dir(RESULT_IMG_PATH)
         sheet_filenames = os.listdir('answered_sheets/converted_sheets')
-        
+
         with ProcessPoolExecutor(max_workers=4) as executor:
-            final_results = executor.map(process_one_sheet, sheet_filenames, students_data)
+            final_results = executor.map(
+                process_one_sheet,
+                sheet_filenames, students_data,
+                )
 
         save_results_to_csv(final_results)
+        
     except Exception as error:
-        print(f'Error : {error}')
+        print(f'Error : {error} {error.__traceback__}')
+        traceback.print_tb(error.__traceback__)
 
 
 if __name__ == '__main__':
     main()
+    
