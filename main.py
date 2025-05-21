@@ -16,6 +16,7 @@ PDF_DPI = 300
 POPPLER_PATH = 'poppler/poppler-24.08.0/Library/bin'
 CONVERTED_IMG_PATH = 'answered_sheets/converted_sheets/'
 RESULT_IMG_PATH = 'results/'
+RESULT_SHEET_PATH = 'results.csv'
 OPTIONS = ['A', 'B', 'C', 'D']
 
 
@@ -149,7 +150,10 @@ def group_and_evaluate(circles, img_name=None):
 
 def extract_qr_data(image):
     data, _, _ = cv2.QRCodeDetector().detectAndDecode(image)
-    return ast.literal_eval(data)
+    if data:
+        return ast.literal_eval(data)
+    print("Error : Qr-Code didn't detected")
+    return None
 
 
 def evaluate_sheet(responses, student_data):
@@ -179,13 +183,13 @@ def process_one_sheet(img_filename, student_data):
 
 
 
-def save_results_to_csv(results, filename='results.csv'):
+def save_results_to_csv(results):
     if not results:
         print("No results to save.")
         return
 
     keys = ['roll', 'name', 'score']
-    with open(filename, 'w', newline='') as f:
+    with open(RESULT_SHEET_PATH, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         writer.writerows(results)
@@ -194,27 +198,17 @@ def save_results_to_csv(results, filename='results.csv'):
 
 
 def main():
-    students_data = pdf_to_images('answered_sheets/answer_sheets.pdf')
-    ensure_dir(RESULT_IMG_PATH)
-    sheet_filenames = os.listdir('answered_sheets/converted_sheets')
-    
-    with ProcessPoolExecutor(max_workers=4) as executor:
-        final_results = executor.map(process_one_sheet, sheet_filenames, students_data)
+    try:
+        students_data = pdf_to_images('answered_sheets/asd.pdf')
+        ensure_dir(RESULT_IMG_PATH)
+        sheet_filenames = os.listdir('answered_sheets/converted_sheets')
         
-    print(list(final_results))
-    # for i, filename in enumerate(sorted(os.listdir(CONVERTED_IMG_PATH))):
-    #     path = os.path.join(CONVERTED_IMG_PATH, filename)
-        # student_info = extract_qr_data(path)
-        # cropped = detect_corner_markers(path)
+        with ProcessPoolExecutor(max_workers=4) as executor:
+            final_results = executor.map(process_one_sheet, sheet_filenames, students_data)
 
-        # if cropped is not None:
-        #     bubbles = detect_bubbles(cropped)
-        #     answers = group_and_evaluate(bubbles, img_name=i)
-        #     evaluate_sheet(answers, student_info)
-
-        # os.remove(path)
-
-    save_results_to_csv(final_results)
+        save_results_to_csv(final_results)
+    except Exception as error:
+        print(f'Error : {error}')
 
 
 if __name__ == '__main__':
