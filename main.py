@@ -2,8 +2,11 @@ import os
 import cv2
 import numpy as np
 from pdf2image import convert_from_path
-from PIL import Image
 from create_answers import create_answers
+import csv
+import ast
+
+
 
 # Constants
 MEAN_INTENSITY_THRESHOLD = 30
@@ -12,6 +15,8 @@ POPPLER_PATH = 'poppler/poppler-24.08.0/Library/bin'
 CONVERTED_IMG_PATH = 'answered_sheets/converted_sheets/'
 RESULT_IMG_PATH = 'results/'
 OPTIONS = ['A', 'B', 'C', 'D']
+mark_list = []
+
 
 
 def ensure_dir(path):
@@ -138,13 +143,31 @@ def group_and_evaluate(circles, img_name=None):
 def extract_qr_data(image_path):
     image = cv2.imread(image_path)
     data, _, _ = cv2.QRCodeDetector().detectAndDecode(image)
-    return data
+    return ast.literal_eval(data)
 
 
 def evaluate_sheet(responses, student_data):
     correct_answers = create_answers(40)  # Simulating answers
     score = sum(1 for q, a in responses.items() if correct_answers.get(q) == a)
-    print(f"Student: {student_data}\nScore: {score}/40\n")
+    student_data['score'] = score
+    mark_list.append(student_data) 
+    
+    print(f"Student: {student_data.get('name')}\nScore: {score}/40\n")
+
+
+
+def save_results_to_csv(filename='results.csv'):
+    if not mark_list:
+        print("No results to save.")
+        return
+
+    keys = ['Name', 'Roll', 'Score']
+    with open(filename, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(mark_list)
+    print(f"Results saved to {filename}")
+
 
 
 def main():
@@ -162,6 +185,8 @@ def main():
             evaluate_sheet(answers, student_info)
 
         os.remove(path)
+
+    save_results_to_csv()
 
 
 if __name__ == '__main__':
