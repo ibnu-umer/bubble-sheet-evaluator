@@ -28,9 +28,13 @@ def ensure_dir(path):
 def pdf_to_images(pdf_path, dpi=PDF_DPI, save_path=CONVERTED_IMG_PATH):
     images = convert_from_path(pdf_path, dpi=dpi, poppler_path=POPPLER_PATH)
     ensure_dir(save_path)
-    for i, img in enumerate(images):
-        img.save(f'{save_path}{i}.png', 'PNG')
-
+    students_data = []
+    for img in images:
+        img_arr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        student_data = extract_qr_data(img_arr)
+        students_data.append(student_data)
+        img.save(f'{save_path}{student_data.get('roll')}.png', 'PNG')
+    return students_data
 
 def detect_corner_markers(image_path):
     def angle(pt1, pt2, pt3):
@@ -143,8 +147,7 @@ def group_and_evaluate(circles, img_name=None):
     return result
 
 
-def extract_qr_data(image_path):
-    image = cv2.imread(image_path)
+def extract_qr_data(image):
     data, _, _ = cv2.QRCodeDetector().detectAndDecode(image)
     return ast.literal_eval(data)
 
@@ -158,21 +161,19 @@ def evaluate_sheet(responses, student_data):
     return student_data
 
 
-def process_one_sheet(img_filename):
+def process_one_sheet(img_filename, student_data):
     img_path = f'answered_sheets/converted_sheets/{img_filename}'
-    student_info = extract_qr_data(img_path)
     cropped = detect_corner_markers(img_path)
-
     if cropped is not None:
         img_name = img_filename.split('.')[0]
         bubbles = detect_bubbles(cropped, img_name=img_name)
         answers = group_and_evaluate(bubbles, img_name=img_name)
-        student_data = evaluate_sheet(answers, student_info)   
+        student_info = evaluate_sheet(answers, student_data)   
     else:
         return f"Failed to process: {img_filename}"
     
     os.remove(img_path)
-    return student_data
+    return student_info
     
 
 
@@ -193,12 +194,12 @@ def save_results_to_csv(results, filename='results.csv'):
 
 
 def main():
-    pdf_to_images('answered_sheets/answer_sheets.pdf')
+    students_data = pdf_to_images('answered_sheets/answer_sheets.pdf')
     ensure_dir(RESULT_IMG_PATH)
     sheet_filenames = os.listdir('answered_sheets/converted_sheets')
     
     with ProcessPoolExecutor(max_workers=4) as executor:
-        final_results = executor.map(process_one_sheet, sheet_filenames)
+        final_results = executor.map(process_one_sheet, sheet_filenames, students_data)
         
     print(list(final_results))
     # for i, filename in enumerate(sorted(os.listdir(CONVERTED_IMG_PATH))):
