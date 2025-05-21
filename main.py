@@ -5,6 +5,8 @@ from pdf2image import convert_from_path
 from create_answers import create_answers
 import csv
 import ast
+from concurrent.futures import ProcessPoolExecutor
+
 
 
 
@@ -15,7 +17,7 @@ POPPLER_PATH = 'poppler/poppler-24.08.0/Library/bin'
 CONVERTED_IMG_PATH = 'answered_sheets/converted_sheets/'
 RESULT_IMG_PATH = 'results/'
 OPTIONS = ['A', 'B', 'C', 'D']
-mark_list = []
+
 
 
 
@@ -84,7 +86,7 @@ def detect_corner_markers(image_path):
     return None
 
 
-def detect_bubbles(image):
+def detect_bubbles(image, img_name=None):
     img_mid = image.shape[1] // 2
     halves = [image[:, :img_mid], image[:, img_mid:]]
     all_circles = []
@@ -96,12 +98,12 @@ def detect_bubbles(image):
                                    param1=50, param2=20, minRadius=35, maxRadius=40)
         all_circles.append(np.round(circles[0, :]).astype("int") if circles is not None else [])
 
-    cv2.imwrite(f'{RESULT_IMG_PATH}blobs_detected.png', cv2.hconcat(halves))
+    cv2.imwrite(f'{RESULT_IMG_PATH}blobs_detected_{img_name}.png', cv2.hconcat(halves))
     return all_circles
 
 
 def group_and_evaluate(circles, img_name=None):
-    img_path = f'{RESULT_IMG_PATH}blobs_detected.png'
+    img_path = f'{RESULT_IMG_PATH}blobs_detected_{img_name}.png'
     image = cv2.imread(img_path)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     result = {}
@@ -137,6 +139,7 @@ def group_and_evaluate(circles, img_name=None):
 
     if img_name is not None:
         cv2.imwrite(f'{RESULT_IMG_PATH}marked_{img_name}.png', image)
+        os.remove(f'{RESULT_IMG_PATH}blobs_detected_{img_name}.png')
     return result
 
 
@@ -150,22 +153,41 @@ def evaluate_sheet(responses, student_data):
     correct_answers = create_answers(40)  # Simulating answers
     score = sum(1 for q, a in responses.items() if correct_answers.get(q) == a)
     student_data['score'] = score
-    mark_list.append(student_data) 
     
     print(f"Student: {student_data.get('name')}\nScore: {score}/40\n")
+    return student_data
+
+
+def process_one_sheet(img_filename):
+    img_path = f'answered_sheets/converted_sheets/{img_filename}'
+    student_info = extract_qr_data(img_path)
+    cropped = detect_corner_markers(img_path)
+
+    if cropped is not None:
+        img_name = img_filename.split('.')[0]
+        bubbles = detect_bubbles(cropped, img_name=img_name)
+        answers = group_and_evaluate(bubbles, img_name=img_name)
+        student_data = evaluate_sheet(answers, student_info)   
+    else:
+        return f"Failed to process: {img_filename}"
+    
+    os.remove(img_path)
+    return student_data
+    
 
 
 
-def save_results_to_csv(filename='results.csv'):
-    if not mark_list:
+
+def save_results_to_csv(results, filename='results.csv'):
+    if not results:
         print("No results to save.")
         return
 
-    keys = ['Name', 'Roll', 'Score']
+    keys = ['roll', 'name', 'score']
     with open(filename, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        writer.writerows(mark_list)
+        writer.writerows(results)
     print(f"Results saved to {filename}")
 
 
@@ -173,20 +195,25 @@ def save_results_to_csv(filename='results.csv'):
 def main():
     pdf_to_images('answered_sheets/answer_sheets.pdf')
     ensure_dir(RESULT_IMG_PATH)
+    sheet_filenames = os.listdir('answered_sheets/converted_sheets')
+    
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        final_results = executor.map(process_one_sheet, sheet_filenames)
+        
+    print(list(final_results))
+    # for i, filename in enumerate(sorted(os.listdir(CONVERTED_IMG_PATH))):
+    #     path = os.path.join(CONVERTED_IMG_PATH, filename)
+        # student_info = extract_qr_data(path)
+        # cropped = detect_corner_markers(path)
 
-    for i, filename in enumerate(sorted(os.listdir(CONVERTED_IMG_PATH))):
-        path = os.path.join(CONVERTED_IMG_PATH, filename)
-        student_info = extract_qr_data(path)
-        cropped = detect_corner_markers(path)
+        # if cropped is not None:
+        #     bubbles = detect_bubbles(cropped)
+        #     answers = group_and_evaluate(bubbles, img_name=i)
+        #     evaluate_sheet(answers, student_info)
 
-        if cropped is not None:
-            bubbles = detect_bubbles(cropped)
-            answers = group_and_evaluate(bubbles, img_name=i)
-            evaluate_sheet(answers, student_info)
+        # os.remove(path)
 
-        os.remove(path)
-
-    save_results_to_csv()
+    save_results_to_csv(final_results)
 
 
 if __name__ == '__main__':
