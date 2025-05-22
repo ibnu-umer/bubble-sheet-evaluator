@@ -44,6 +44,7 @@ def pdf_to_images(pdf_path, dpi=PDF_DPI, save_path=CONVERTED_IMG_PATH):
 
 def detect_corner_markers(image_path):
     def angle(pt1, pt2, pt3):
+        '''To find angle of the L corners'''
         v1, v2 = pt1 - pt2, pt3 - pt2
         return np.degrees(np.arccos(
             np.clip(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)), -1.0, 1.0)
